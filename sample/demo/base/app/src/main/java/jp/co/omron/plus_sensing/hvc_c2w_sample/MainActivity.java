@@ -25,6 +25,7 @@ import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.ScrollView;
+import android.widget.SeekBar;
 import android.widget.Spinner;
 import android.widget.TextView;
 
@@ -40,7 +41,9 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 
 import javax.net.ssl.HttpsURLConnection;
@@ -56,6 +59,9 @@ import jp.co.omron.hvcw.ResultDirection;
 import jp.co.omron.hvcw.ResultFace;
 import jp.co.omron.hvcw.ResultGender;
 import jp.co.omron.hvcw.ResultRecognition;
+import jp.co.omron.hvcw.ResultBlink;
+import jp.co.omron.hvcw.ResultGaze;
+import jp.co.omron.hvcw.ResultExpression;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -87,6 +93,10 @@ public class MainActivity extends AppCompatActivity {
     private CheckBox cb2;
     private int defaultInputType1;
     private int defaultInputType2;
+
+    // 音量変更用
+    private SeekBar sb;
+    private AudioManager am;
 
     /** Wifi APスキャン用 */
     private BroadcastReceiver receiver;
@@ -136,6 +146,9 @@ public class MainActivity extends AppCompatActivity {
 
         // カメラ接続に必要なWifiのAPをスキャン
         scanWifiAP();
+
+        // AudioManager取得
+        am = (AudioManager)getSystemService(Context.AUDIO_SERVICE);
     }
 
     @Override
@@ -349,6 +362,26 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onClick(View v) {
                 deleteAlbum();
+            }
+        });
+
+        // 音量
+        sb = (SeekBar)findViewById(R.id.seekBar);
+        sb.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                // 音量を調整可能に
+                am.setStreamVolume(AudioManager.STREAM_MUSIC, sb.getProgress(), 0);
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+
             }
         });
     }
@@ -565,15 +598,18 @@ public class MainActivity extends AppCompatActivity {
                         return;
                     }
 
+                    // 音量を調整可能に
+                    am.setStreamVolume(AudioManager.STREAM_MUSIC, sb.getProgress(), 0);
+
                     int audioBuffSize = AudioTrack.getMinBufferSize(
                             8000, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT);
-
                     AudioTrack audio = new AudioTrack(AudioManager.STREAM_MUSIC,
                             8000,
                             AudioFormat.CHANNEL_OUT_MONO,
                             AudioFormat.ENCODING_PCM_16BIT,
                             audioBuffSize,
                             AudioTrack.MODE_STREAM);
+
                     audio.play();
                     audio.write(byteData, 0, byteData.length);
                 }
@@ -732,14 +768,21 @@ public class MainActivity extends AppCompatActivity {
         new Thread(new Runnable() {
             @Override
             public void run() {
+
+                StringBuilder sb = new StringBuilder();
+                // 認証開始時間を追加
+                Date retDt = new Date();
+                SimpleDateFormat sdf = new SimpleDateFormat("hh:mm:ss SSS");
+                sb.append(String.format("startTime=%s\n", sdf.format(retDt)));
+
                 // 顔検出・顔向き推定・年齢推定・性別推定・顔認証をON
-                int useFunction[] = {0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1};
+                int useFunction[] = {0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1};
                 OkaoResult result = new OkaoResult();
                 Int returnStatus = new Int();
+
                 // 実行
                 int ret = api.okaoExecute(useFunction, result, returnStatus);
 
-                StringBuilder sb = new StringBuilder();
                 if (ret == ErrorCodes.HVCW_SUCCESS) {
                     sb.append(String.format("errorCode=%d,returnStatus=%#x\n", ret, returnStatus.getIntValue()));
                     // 検出数
@@ -769,6 +812,29 @@ public class MainActivity extends AppCompatActivity {
                         sb.append(String.format("\nface[%d] gender=%d,confidence=%d", i,
                                 rg.getGender(),
                                 rg.getConfidence()));
+                        // ▼▼▼ 視線、瞬き、表情、認証完了時間を追加 ▼▼▼
+                        // 視線推定結果
+                        ResultGaze rgz = rf[i].getGaze();
+                        sb.append(String.format("\nface[%d] leftRight=%d,upDown=%d", i,
+                                rgz.getLR(),
+                                rgz.getUD()));
+                        // 瞬き推定結果
+                        ResultBlink rb = rf[i].getBlink();
+                        sb.append(String.format("\nface[%d] leftEye=%d,rightEye=%d", i,
+                                rb.getLeftEye(),
+                                rb.getRightEye()));
+                        // 表情推定結果
+                        ResultExpression re = rf[i].getExpression();
+                        sb.append(String.format("\nface[%d] score1=%d,score2=%d,score3=%d,score4=%d,score5=%d,degree=%d", i,
+                                re.getScore()[0],
+                                re.getScore()[1],
+                                re.getScore()[2],
+                                re.getScore()[3],
+                                re.getScore()[4],
+                                re.getDegree()));
+                        retDt = new Date();
+                        sb.append(String.format("\ncompleteTime=%s", sdf.format(retDt)));
+                        // ▲▲▲ 視線、瞬き、表情、認証完了時間を追加 ▲▲▲
                         // 顔認証
                         ResultRecognition rr = rf[i].getRecognition();
                         String recg;
